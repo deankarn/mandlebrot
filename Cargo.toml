@@ -1,0 +1,7 @@
+[package]
+authors = ["Dean Karn <dean.karn@gmail.com>"]
+name = "mandlebrot"
+version = "0.1.0"
+
+[dependencies]
+image = "0.18.0"
