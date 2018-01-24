@@ -20,7 +20,8 @@ struct Point {
 }
 
 fn main() {
-    let pool = Builder::new().pool_size(2048).create();
+    let cpus = num_cpus::get();
+    let pool = Builder::new().pool_size(cpus).create();
     let (tx, rx) = channel();
     let threads = (0..WIDTH)
         .map(|x| {
