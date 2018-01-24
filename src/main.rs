@@ -1,3 +1,5 @@
+extern crate futures;
+extern crate futures_cpupool;
 extern crate image;
 extern crate num_cpus;
 
@@ -5,6 +7,8 @@ use std::fs::File;
 use std::thread;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::channel;
+use futures::future::{join_all, Future};
+use futures_cpupool::{Builder, CpuPool};
 
 const WIDTH: u32 = 2048;
 const HEIGHT: u32 = 2048;
@@ -16,11 +20,12 @@ struct Point {
 }
 
 fn main() {
+    let pool = Builder::new().pool_size(2048).create();
     let (tx, rx) = channel();
     let threads = (0..WIDTH)
         .map(|x| {
             let tx = tx.clone();
-            thread::spawn(move || {
+            pool.spawn_fn(move || {
                 for y in 0..HEIGHT {
                     let value = generate_pixel(x, y);
                     let pt = Point {
@@ -30,6 +35,8 @@ fn main() {
                     };
                     tx.send(pt).unwrap();
                 }
+                let result: Result<(), ()> = Ok(());
+                result
             })
         })
         .collect::<Vec<_>>();
@@ -41,9 +48,10 @@ fn main() {
         img.put_pixel(pt.x, pt.y, image::Luma([pt.value as u8]))
     }
 
-    for h in threads {
-        let _ = h.join();
-    }
+    let _ = join_all(threads);
+    // for h in threads {
+    //     let _ = h.join();
+    // }
     // Save the image as “fractal.png”
     let ref mut fout = File::create("out.png").unwrap();
 
