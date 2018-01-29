@@ -1,97 +1,53 @@
 extern crate futures;
 extern crate futures_cpupool;
-extern crate image;
-extern crate num_cpus;
+extern crate hyper;
 
-use std::fs::File;
-use std::thread;
-use std::sync::{Arc, Mutex};
-use std::sync::mpsc::channel;
-use futures::future::{join_all, Future};
+mod mandlebrot;
+use mandlebrot::mandlebrot::Mandlebrot;
+
+use futures::future::Future;
 use futures_cpupool::{Builder, CpuPool};
+
+use hyper::header::ContentType;
+use hyper::server::{Http, Request, Response, Service};
 
 const WIDTH: u32 = 2048;
 const HEIGHT: u32 = 2048;
 
-struct Point {
-    x: u32,
-    y: u32,
-    value: u8,
-}
-
 fn main() {
-    let cpus = num_cpus::get();
-    let pool = Builder::new().pool_size(cpus).create();
-    let (tx, rx) = channel();
-    let threads = (0..WIDTH)
-        .map(|x| {
-            let tx = tx.clone();
-            pool.spawn_fn(move || {
-                for y in 0..HEIGHT {
-                    let value = generate_pixel(x, y);
-                    let pt = Point {
-                        x: x,
-                        y: y,
-                        value: value,
-                    };
-                    tx.send(pt).unwrap();
-                }
-                let result: Result<(), ()> = Ok(());
-                result
-            })
-        })
-        .collect::<Vec<_>>();
+    let addr = "127.0.0.1:3000".parse().unwrap();
+    let env = Environment {
+        pool: Builder::new().pool_size(8).create(),
+    };
+    let server = Http::new().bind(&addr, move || Ok(HttpService { env: &env }));
+    server.unwrap().run().unwrap();
+}
 
-    let mut img: image::GrayImage = image::ImageBuffer::new(WIDTH, HEIGHT);
+struct Environment {
+    pool: CpuPool,
+}
 
-    for _ in 0..WIDTH * HEIGHT {
-        let pt = rx.recv().unwrap();
-        img.put_pixel(pt.x, pt.y, image::Luma([pt.value as u8]))
+struct HttpService<'a> {
+    pub env: &'a Environment,
+}
+
+impl<'a> Service for HttpService<'a> {
+    type Request = Request;
+    type Response = Response;
+    type Error = hyper::Error;
+    type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
+
+    fn call(&self, _req: Request) -> Self::Future {
+        let mut img: Vec<u8> = Vec::new();
+        let pool = self.env.pool.clone();
+        let mb = Mandlebrot::new_with_pool(pool);
+
+        mb.generate(WIDTH, HEIGHT, &mut img);
+
+        Box::new(futures::future::ok(
+            Response::new()
+                .with_header(ContentType::png())
+                .with_body(img),
+        ))
     }
-
-    let _ = join_all(threads);
-    // for h in threads {
-    //     let _ = h.join();
-    // }
-    // Save the image as “fractal.png”
-    let ref mut fout = File::create("out.png").unwrap();
-
-    // We must indicate the image's color type and what format to save as
-    image::ImageLuma8(img).save(fout, image::PNG).unwrap();
 }
-
-fn generate_pixel(i: u32, j: u32) -> u8 {
-    let xi = norm(i as f64, WIDTH as f64, -1.0, 2.0);
-    let yi = norm(j as f64, HEIGHT as f64, -1.0, 1.0);
-
-    const COMPLEXITY: f64 = 1024.0;
-    let (mut x, mut y) = (0., 0.);
-    let mut i = 0;
-    while (x * x + y * y < COMPLEXITY) && i < 1000 {
-        let (xm, ym) = (x * x - y * y + xi, 2.0 * x * y + yi);
-        x = xm;
-        y = ym;
-        i = i + 1;
-    }
-    x as u8
-}
-
-fn norm(x: f64, total: f64, min: f64, max: f64) -> f64 {
-    (max - min) * x / total - max
-}
-
-// fn set_pixel(i: u32, j: u32, pixel: &mut image::Luma<u8>) {
-//     let xi = norm(i as f64, WIDTH as f64, -1.0, 2.0);
-//     let yi = norm(j as f64, HEIGHT as f64, -1.0, 1.0);
-
-//     const COMPLEXITY: f64 = 1024.0;
-//     let (mut x, mut y) = (0., 0.);
-//     let mut i = 0;
-//     while (x * x + y * y < COMPLEXITY) && i < 1000 {
-//         let (xm, ym) = (x * x - y * y + xi, 2.0 * x * y + yi);
-//         x = xm;
-//         y = ym;
-//         i = i + 1;
-//     }
-//     *pixel = image::Luma([x as u8]);
-// }
