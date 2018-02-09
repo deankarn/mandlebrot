@@ -15,7 +15,7 @@ extern crate tokio_core;
 extern crate error_chain;
 
 mod mandlebrot;
-use mandlebrot::mandlebrot::Mandlebrot;
+use mandlebrot::Mandlebrot;
 
 use futures::future::Future;
 use futures_cpupool::{Builder, CpuPool};
